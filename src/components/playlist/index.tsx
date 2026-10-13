@@ -209,20 +209,19 @@ export default function Playlist() {
         <div
           className={
             collapsed
-              ? "absolute left-3 top-1/2 -translate-y-1/2 w-16 h-16 rounded-lg overflow-hidden border border-border bg-background shadow-sm"
-              : "absolute inset-0 w-full h-full overflow-hidden rounded-t-xl bg-background"
+              ? "absolute left-3 top-1/2 -translate-y-1/2 w-16 h-16 rounded-lg overflow-hidden border border-border bg-background shadow-sm pointer-events-none"
+              : "absolute inset-0 w-full h-full overflow-hidden rounded-t-xl bg-background pointer-events-none"
           }
         >
           <div
             key={player.containerKey}
             ref={player.containerRef}
-            className="absolute inset-0 w-full h-full pointer-events-none"
+            className="absolute inset-0 w-full h-full"
           />
         </div>
 
         {collapsed && (
           <CollapsedView
-            containerRef={player.containerRef}
             displayTitle={displayTitle}
             kind={kind}
             playerReady={player.playerReady}

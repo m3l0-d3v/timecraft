@@ -75,7 +75,7 @@ export default function Timer({
 
   return (
     <div className="w-full flex flex-col items-center">
-      <div className="relative w-[min(440px,55vh)] h-[min(440px,55vh)] flex items-center justify-center">
+      <div className="relative w-[min(280px,34vh)] h-[min(280px,34vh)] flex items-center justify-center">
         <svg
           className="absolute inset-0 -rotate-90 w-full h-full"
           viewBox="0 0 440 440"
@@ -102,28 +102,28 @@ export default function Timer({
         </svg>
 
         <div className="flex flex-col items-center">
-          <span className="text-sm uppercase tracking-[0.35em] text-muted-foreground mb-4">
+          <span className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-2.5">
             {LABELS[mode]}
           </span>
-          <div className="text-[clamp(4rem,13vh,7rem)] font-bold tabular-nums tracking-tight leading-none">
+          <div className="text-[clamp(2.25rem,7.5vh,4rem)] font-bold tabular-nums tracking-tight leading-none">
             {minutes}:{seconds}
           </div>
         </div>
       </div>
 
-      <div className="flex gap-4 justify-center items-center mt-10">
+      <div className="flex gap-2 justify-center items-center mt-6">
         <Button
           onClick={() => setRunning((r) => !r)}
           size="lg"
-          className="px-12 h-14 text-base rounded-xl"
+          className="px-7 h-10 text-xs rounded-lg"
         >
           {running ? (
             <>
-              <Pause className="w-5 h-5" /> Pausar
+              <Pause className="w-3.5 h-3.5" /> Pausar
             </>
           ) : (
             <>
-              <Play className="w-5 h-5" /> Iniciar
+              <Play className="w-3.5 h-3.5" /> Iniciar
             </>
           )}
         </Button>
@@ -132,9 +132,9 @@ export default function Timer({
           size="icon"
           onClick={reset}
           aria-label="Reiniciar"
-          className="h-14 w-14 rounded-xl"
+          className="h-10 w-10 rounded-lg"
         >
-          <RefreshCw className="w-5 h-5" />
+          <RefreshCw className="w-3.5 h-3.5" />
         </Button>
         <Button
           variant="outline"
@@ -144,17 +144,17 @@ export default function Timer({
             else document.documentElement.requestFullscreen();
           }}
           aria-label="Tela cheia"
-          className="h-14 w-14 rounded-xl"
+          className="h-10 w-10 rounded-lg"
         >
-          <Maximize className="w-5 h-5" />
+          <Maximize className="w-3.5 h-3.5" />
         </Button>
         <Button
           variant="outline"
           size="icon"
           aria-label="Picture in picture"
-          className="h-14 w-14 rounded-xl"
+          className="h-10 w-10 rounded-lg"
         >
-          <PictureInPicture className="w-5 h-5" />
+          <PictureInPicture className="w-3.5 h-3.5" />
         </Button>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import Playlist from "../playlist";
 import { CollapsedView } from "./collapsed-view";
+import { StatusFilter } from "./status-filter";
 import { TaskList } from "./task-list";
 import {
   COLLAPSED_KEY,
@@ -22,6 +23,9 @@ export default function Tasks() {
   const [draft, setDraft] = useState("");
   const [collapsed, setCollapsed] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Set<TaskStatus>>(
+    () => new Set(),
+  );
   const skipFirstSave = useRef(true);
 
   useEffect(() => {
@@ -85,6 +89,19 @@ export default function Tasks() {
     setTasks((t) => t.filter((task) => task.id !== id));
   };
 
+  const toggleFilter = (status: TaskStatus) => {
+    setActiveFilters((current) => {
+      const next = new Set(current);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  };
+
+  const clearFilters = () => {
+    setActiveFilters(new Set());
+  };
+
   const counts = useMemo(() => {
     const base = STATUSES.reduce(
       (acc, status) => {
@@ -97,8 +114,27 @@ export default function Tasks() {
     return base;
   }, [tasks]);
 
+  const filteredTasks = useMemo(() => {
+    if (activeFilters.size === 0) return tasks;
+    return tasks.filter((task) => activeFilters.has(task.status));
+  }, [tasks, activeFilters]);
+
+  const filteredCounts = useMemo(() => {
+    const base = STATUSES.reduce(
+      (acc, status) => {
+        acc[status.value] = 0;
+        return acc;
+      },
+      {} as Record<TaskStatus, number>,
+    );
+    for (const task of filteredTasks) base[task.status] += 1;
+    return base;
+  }, [filteredTasks]);
+
   const doneCount = counts.done;
   const totalCount = tasks.length;
+
+  const hiddenCount = tasks.length - filteredTasks.length;
 
   if (!mounted) {
     return (
@@ -148,7 +184,7 @@ export default function Tasks() {
             </Button>
           </div>
 
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -169,12 +205,27 @@ export default function Tasks() {
             </Button>
           </div>
 
+          <div className="mb-4">
+            <StatusFilter
+              activeFilters={activeFilters}
+              counts={counts}
+              onToggle={toggleFilter}
+              onClear={clearFilters}
+            />
+          </div>
+
           <TaskList
-            tasks={tasks}
-            counts={counts}
+            tasks={filteredTasks}
+            counts={filteredCounts}
             onStatusChange={changeStatus}
             onRemove={removeTask}
           />
+
+          {activeFilters.size > 0 && hiddenCount > 0 && (
+            <div className="mt-3 text-[10px] text-muted-foreground text-center tabular-nums">
+              {hiddenCount} oculta{hiddenCount === 1 ? "" : "s"} pelo filtro
+            </div>
+          )}
 
           <div className="mt-5 pt-4 border-t border-border/60 text-xs text-muted-foreground leading-relaxed">
             Clique no ícone ao lado da tarefa para alterar o status.

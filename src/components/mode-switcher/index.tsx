@@ -24,7 +24,7 @@ export default function ModeSwitcher({
   onChange: (m: Mode) => void;
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       {MODES.map((m) => {
         const active = value === m.key;
         const Icon = m.icon;
@@ -32,18 +32,18 @@ export default function ModeSwitcher({
           <button
             key={m.key}
             onClick={() => onChange(m.key)}
-            className={`flex items-center gap-3 rounded-full border px-7 py-3.5 transition-colors ${
+            className={`flex items-center gap-2 rounded-full border px-4 py-2 transition-colors ${
               active
                 ? "border-foreground/70 bg-foreground/5 text-foreground"
                 : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
             }`}
           >
-            <Icon className="w-5 h-5 shrink-0" />
-            <span className="flex items-baseline gap-2.5">
-              <span className="text-base font-medium tracking-tight">
+            <Icon className="w-3.5 h-3.5 shrink-0" />
+            <span className="flex items-baseline gap-1.5">
+              <span className="text-xs font-medium tracking-tight">
                 {m.label}
               </span>
-              <span className="text-xs tabular-nums opacity-60">
+              <span className="text-[10px] tabular-nums opacity-60">
                 {m.duration}
               </span>
             </span>

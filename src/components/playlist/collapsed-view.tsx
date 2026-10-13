@@ -6,7 +6,6 @@ import { formatTime } from "./utils";
 import type { SourceKind } from "./constants";
 
 type CollapsedViewProps = {
-  containerRef: React.RefObject<HTMLDivElement | null>;
   displayTitle: string;
   kind: SourceKind | null;
   playerReady: boolean;
@@ -23,7 +22,6 @@ type CollapsedViewProps = {
 };
 
 export function CollapsedView({
-  containerRef,
   displayTitle,
   kind,
   playerReady,
@@ -42,11 +40,7 @@ export function CollapsedView({
   const disabledSkip = disabledPlay || kind !== "playlist";
 
   return (
-    <div className="flex items-center gap-3 w-full h-24 px-3">
-      <div className="shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-border bg-background shadow-sm">
-        <div ref={containerRef} className="w-full h-full pointer-events-none" />
-      </div>
-
+    <div className="flex items-center gap-3 w-full h-24 pl-24 pr-3">
       <div className="flex-1 min-w-0 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium truncate block leading-tight flex-1 min-w-0">
