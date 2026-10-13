@@ -66,9 +66,8 @@ export function useYouTubePlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [videoTitle, setVideoTitle] = useState("");
-  const [containerKey, setContainerKey] = useState(0);
   const playerRef = useRef<YTPlayer | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const apiLoadedRef = useRef(false);
   const volumeRef = useRef(volume);
   const mutedRef = useRef(muted);
@@ -88,11 +87,16 @@ export function useYouTubePlayer({
 
     const createPlayer = () => {
       if (cancelled) return;
-      if (!containerRef.current) return;
+      if (!wrapperRef.current) return;
       if (playerRef.current) return;
 
       const parsed = parse(url);
       if (!parsed) return;
+
+      const host = document.createElement("div");
+      host.style.width = "100%";
+      host.style.height = "100%";
+      wrapperRef.current.appendChild(host);
 
       const playerVars: Record<string, unknown> = {
         modestbranding: 1,
@@ -103,6 +107,7 @@ export function useYouTubePlayer({
         fs: 0,
         iv_load_policy: 3,
         showinfo: 0,
+        origin: window.location.origin,
       };
 
       if (parsed.kind === "playlist") {
@@ -152,7 +157,7 @@ export function useYouTubePlayer({
         options.videoId = parsed.id;
       }
 
-      playerRef.current = new window.YT.Player(containerRef.current, options);
+      playerRef.current = new window.YT.Player(host, options);
     };
 
     const loadAPI = () => {
@@ -179,15 +184,20 @@ export function useYouTubePlayer({
     return () => {
       cancelled = true;
 
-      if (playerRef.current) {
+      const player = playerRef.current;
+      playerRef.current = null;
+
+      if (player) {
         try {
-          playerRef.current.destroy();
+          player.destroy();
         } catch {}
-        playerRef.current = null;
+      }
+
+      if (wrapperRef.current) {
+        wrapperRef.current.replaceChildren();
       }
 
       setPlayerReady(false);
-      setContainerKey((k) => k + 1);
     };
   }, [url, kind, parse]);
 
@@ -234,14 +244,20 @@ export function useYouTubePlayer({
   };
 
   const destroy = () => {
-    if (playerRef.current) {
+    const player = playerRef.current;
+    playerRef.current = null;
+
+    if (player) {
       try {
-        playerRef.current.destroy();
+        player.destroy();
       } catch {}
-      playerRef.current = null;
     }
+
+    if (wrapperRef.current) {
+      wrapperRef.current.replaceChildren();
+    }
+
     reset();
-    setContainerKey((k) => k + 1);
   };
 
   const togglePlay = () => {
@@ -286,8 +302,7 @@ export function useYouTubePlayer({
   const clearTitle = () => setVideoTitle("");
 
   return {
-    containerRef,
-    containerKey,
+    wrapperRef,
     playerReady,
     playerError,
     playing,

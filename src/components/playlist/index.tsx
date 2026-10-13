@@ -131,16 +131,6 @@ export default function Playlist() {
         },
       ]);
     }
-
-    toast.success(
-      parsed.kind === "playlist" ? "Playlist carregada" : "Vídeo carregado",
-      {
-        description:
-          parsed.kind === "playlist"
-            ? "Boa sessão de foco."
-            : "Vídeo pronto para tocar.",
-      },
-    );
   };
 
   const stop = () => {
@@ -214,8 +204,7 @@ export default function Playlist() {
           }
         >
           <div
-            key={player.containerKey}
-            ref={player.containerRef}
+            ref={player.wrapperRef}
             className="absolute inset-0 w-full h-full"
           />
         </div>
