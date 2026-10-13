@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import ReactPlayer from "react-player";
 import { toast } from "sonner";
 import {
   ListMusic,
@@ -14,9 +13,16 @@ import {
   VolumeX,
   Maximize2,
   Minimize2,
+  Trash2,
+  Plus,
+  Check,
+  Pencil,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  XIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Popover,
   PopoverContent,
@@ -24,10 +30,11 @@ import {
 } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 
-const STORAGE_KEY = "timecraft:playlist-url";
+const URL_KEY = "timecraft:playlist-url";
 const COLLAPSED_KEY = "timecraft:playlist-collapsed";
 const VOLUME_KEY = "timecraft:playlist-volume";
 const EXPANDED_KEY = "timecraft:playlist-expanded";
+const LIBRARY_KEY = "timecraft:playlist-library";
 
 type SourceKind = "playlist" | "video";
 
@@ -35,6 +42,13 @@ type ParsedSource = {
   kind: SourceKind;
   url: string;
   id: string;
+};
+
+type SavedSource = {
+  id: string;
+  url: string;
+  title: string;
+  kind: SourceKind;
 };
 
 function parseYouTubeUrl(input: string): ParsedSource | null {
@@ -74,14 +88,44 @@ function parseYouTubeUrl(input: string): ParsedSource | null {
   return { kind: "video", url: input, id: videoId };
 }
 
-type InternalPlayer = {
-  nextVideo?: () => void;
-  previousVideo?: () => void;
-  setVolume?: (v: number) => void;
-  getVolume?: () => number;
-  mute?: () => void;
-  unMute?: () => void;
+type YTPlayer = {
+  playVideo: () => void;
+  pauseVideo: () => void;
+  nextVideo: () => void;
+  previousVideo: () => void;
+  setVolume: (v: number) => void;
+  mute: () => void;
+  unMute: () => void;
+  destroy: () => void;
+  getPlayerState: () => number;
 };
+
+type YTPlayerOptions = {
+  videoId?: string;
+  playerVars?: Record<string, unknown>;
+  events?: {
+    onReady?: (event: { target: YTPlayer }) => void;
+    onError?: () => void;
+    onStateChange?: (event: { data: number }) => void;
+  };
+};
+
+declare global {
+  interface Window {
+    YT: {
+      Player: new (
+        element: HTMLElement | string,
+        options: YTPlayerOptions,
+      ) => YTPlayer;
+      PlayerState: {
+        PLAYING: number;
+        PAUSED: number;
+        ENDED: number;
+      };
+    };
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
 
 const iconButtonClass =
   "inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
@@ -89,6 +133,16 @@ const iconButtonClass =
 function toNumber(value: number | readonly number[]): number {
   if (typeof value === "number") return value;
   return value[0] ?? 0;
+}
+
+function makeId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function defaultTitle(parsed: ParsedSource): string {
+  return parsed.kind === "playlist"
+    ? `Playlist ${parsed.id.slice(0, 4)}`
+    : `Vídeo ${parsed.id.slice(0, 4)}`;
 }
 
 export default function Playlist() {
@@ -101,14 +155,32 @@ export default function Playlist() {
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const internalPlayerRef = useRef<InternalPlayer | null>(null);
-  const playerRef = useRef<React.ComponentRef<typeof ReactPlayer>>(null);
+  const [playerReady, setPlayerReady] = useState(false);
+  const [playerError, setPlayerError] = useState(false);
+  const [library, setLibrary] = useState<SavedSource[]>([]);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const playerRef = useRef<YTPlayer | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const apiLoadedRef = useRef(false);
+  const volumeRef = useRef(volume);
+  const mutedRef = useRef(muted);
 
   useEffect(() => {
-    const storedUrl = localStorage.getItem(STORAGE_KEY);
+    volumeRef.current = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
+
+  useEffect(() => {
+    const storedUrl = localStorage.getItem(URL_KEY);
     const storedCollapsed = localStorage.getItem(COLLAPSED_KEY);
     const storedVolume = localStorage.getItem(VOLUME_KEY);
     const storedExpanded = localStorage.getItem(EXPANDED_KEY);
+    const storedLibrary = localStorage.getItem(LIBRARY_KEY);
 
     if (storedUrl) {
       const parsed = parseYouTubeUrl(storedUrl);
@@ -123,14 +195,20 @@ export default function Playlist() {
       if (!Number.isNaN(v) && v >= 0 && v <= 1) setVolume(v);
     }
     if (storedExpanded === "true") setExpanded(true);
+    if (storedLibrary) {
+      try {
+        const parsed = JSON.parse(storedLibrary) as SavedSource[];
+        if (Array.isArray(parsed)) setLibrary(parsed);
+      } catch {}
+    }
 
     setMounted(true);
   }, []);
 
   useEffect(() => {
     if (!mounted) return;
-    if (url) localStorage.setItem(STORAGE_KEY, url);
-    else localStorage.removeItem(STORAGE_KEY);
+    if (url) localStorage.setItem(URL_KEY, url);
+    else localStorage.removeItem(URL_KEY);
   }, [url, mounted]);
 
   useEffect(() => {
@@ -149,17 +227,129 @@ export default function Playlist() {
   }, [expanded, mounted]);
 
   useEffect(() => {
-    const player = internalPlayerRef.current;
-    if (!player) return;
-    if (typeof player.setVolume === "function") {
-      player.setVolume(volume * 100);
+    if (!mounted) return;
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(library));
+  }, [library, mounted]);
+
+  useEffect(() => {
+    if (!url || !kind) return;
+    if (playerRef.current) return;
+
+    const createPlayer = () => {
+      if (!containerRef.current || playerRef.current) return;
+
+      const parsed = parseYouTubeUrl(url);
+      if (!parsed) return;
+
+      const playerVars: Record<string, unknown> = {
+        modestbranding: 1,
+        rel: 0,
+        playsinline: 1,
+      };
+
+      if (parsed.kind === "playlist") {
+        playerVars.listType = "playlist";
+        playerVars.list = parsed.id;
+      }
+
+      const options: YTPlayerOptions = {
+        playerVars,
+        events: {
+          onReady: (event) => {
+            setPlayerReady(true);
+            setPlayerError(false);
+            event.target.setVolume(volumeRef.current * 100);
+            if (mutedRef.current) event.target.mute();
+            else event.target.unMute();
+          },
+          onError: () => {
+            setPlayerError(true);
+            setPlaying(false);
+            toast.error("Não foi possível carregar a mídia", {
+              description:
+                "Verifique se o vídeo ou playlist está público e tente novamente.",
+            });
+          },
+          onStateChange: (event) => {
+            if (event.data === window.YT.PlayerState.PLAYING) {
+              setPlaying(true);
+            } else if (
+              event.data === window.YT.PlayerState.PAUSED ||
+              event.data === window.YT.PlayerState.ENDED
+            ) {
+              setPlaying(false);
+            }
+          },
+        },
+      };
+
+      if (parsed.kind === "video") {
+        options.videoId = parsed.id;
+      }
+
+      playerRef.current = new window.YT.Player(containerRef.current, options);
+    };
+
+    const loadAPI = () => {
+      if (window.YT && window.YT.Player) {
+        createPlayer();
+        return;
+      }
+
+      if (!apiLoadedRef.current) {
+        apiLoadedRef.current = true;
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScript = document.getElementsByTagName("script")[0];
+        firstScript.parentNode?.insertBefore(tag, firstScript);
+      }
+
+      window.onYouTubeIframeAPIReady = () => {
+        createPlayer();
+      };
+    };
+
+    loadAPI();
+
+    return () => {
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch {}
+        playerRef.current = null;
+      }
+      setPlayerReady(false);
+    };
+  }, [url, kind]);
+
+  useEffect(() => {
+    if (!playerRef.current || !playerReady) return;
+    try {
+      playerRef.current.setVolume(volume * 100);
+    } catch {}
+  }, [volume, playerReady]);
+
+  useEffect(() => {
+    if (!playerRef.current || !playerReady) return;
+    try {
+      if (muted) playerRef.current.mute();
+      else playerRef.current.unMute();
+    } catch {}
+  }, [muted, playerReady]);
+
+  const loadSource = (source: ParsedSource) => {
+    if (playerRef.current) {
+      try {
+        playerRef.current.destroy();
+      } catch {}
+      playerRef.current = null;
     }
-    if (muted) {
-      player.mute?.();
-    } else {
-      player.unMute?.();
-    }
-  }, [volume, muted]);
+    setPlayerReady(false);
+    setPlayerError(false);
+    setUrl(source.url);
+    setKind(source.kind);
+    setPlaying(false);
+  };
 
   const save = () => {
     const trimmed = draft.trim();
@@ -178,11 +368,21 @@ export default function Playlist() {
       return;
     }
 
-    setUrl(parsed.url);
-    setKind(parsed.kind);
+    loadSource(parsed);
     setDraft("");
-    setPlaying(false);
-    internalPlayerRef.current = null;
+
+    const already = library.some((item) => item.url === parsed.url);
+    if (!already) {
+      setLibrary((l) => [
+        ...l,
+        {
+          id: makeId(),
+          url: parsed.url,
+          title: defaultTitle(parsed),
+          kind: parsed.kind,
+        },
+      ]);
+    }
 
     toast.success(
       parsed.kind === "playlist" ? "Playlist carregada" : "Vídeo carregado",
@@ -195,128 +395,269 @@ export default function Playlist() {
     );
   };
 
-  const clear = () => {
+  const stop = () => {
+    if (playerRef.current) {
+      try {
+        playerRef.current.destroy();
+      } catch {}
+      playerRef.current = null;
+    }
+    setPlayerReady(false);
+    setPlayerError(false);
     setUrl("");
     setKind(null);
     setPlaying(false);
-    internalPlayerRef.current = null;
   };
 
-  const togglePlay = () => setPlaying((p) => !p);
-  const toggleMute = () => setMuted((m) => !m);
-  const toggleExpanded = () => setExpanded((e) => !e);
+  const playSaved = (item: SavedSource) => {
+    const parsed = parseYouTubeUrl(item.url);
+    if (!parsed) {
+      toast.error("Playlist inválida", {
+        description: "Remova e adicione novamente.",
+      });
+      return;
+    }
+    loadSource(parsed);
+    setLibraryOpen(false);
+    toast.success(
+      parsed.kind === "playlist" ? "Playlist carregada" : "Vídeo carregado",
+    );
+  };
 
-  const handleReady = () => {
-    const player = (
-      playerRef.current as unknown as {
-        getInternalPlayer?: () => InternalPlayer;
-      }
-    )?.getInternalPlayer?.();
-    if (player) {
-      internalPlayerRef.current = player;
-      if (typeof player.setVolume === "function") {
-        player.setVolume(volume * 100);
-      }
-      if (muted) player.mute?.();
-      else player.unMute?.();
+  const removeSaved = (id: string) => {
+    setLibrary((l) => l.filter((item) => item.id !== id));
+    if (editingId === id) {
+      setEditingId(null);
+      setEditingTitle("");
     }
   };
 
-  const handleError = () => {
-    toast.error("Não foi possível carregar a mídia", {
-      description:
-        "Verifique se o vídeo ou playlist está público e tente novamente.",
-    });
-    setPlaying(false);
+  const startEditing = (item: SavedSource) => {
+    setEditingId(item.id);
+    setEditingTitle(item.title);
   };
 
-  const skipNext = () => internalPlayerRef.current?.nextVideo?.();
-  const skipPrev = () => internalPlayerRef.current?.previousVideo?.();
+  const commitEditing = () => {
+    if (!editingId) return;
+    const trimmed = editingTitle.trim();
+    if (trimmed) {
+      setLibrary((l) =>
+        l.map((item) =>
+          item.id === editingId ? { ...item, title: trimmed } : item,
+        ),
+      );
+    }
+    setEditingId(null);
+    setEditingTitle("");
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditingTitle("");
+  };
+
+  const togglePlay = () => {
+    if (!playerRef.current || !playerReady) return;
+    try {
+      if (playing) {
+        playerRef.current.pauseVideo();
+      } else {
+        playerRef.current.playVideo();
+      }
+    } catch {}
+  };
+
+  const toggleMute = () => setMuted((m) => !m);
+  const toggleExpanded = () => setExpanded((e) => !e);
+  const toggleCollapsed = () => setCollapsed((c) => !c);
+
+  const skipNext = () => {
+    if (!playerRef.current || !playerReady) return;
+    if (kind === "playlist") {
+      try {
+        playerRef.current.nextVideo();
+      } catch {}
+    }
+  };
+
+  const skipPrev = () => {
+    if (!playerRef.current || !playerReady) return;
+    if (kind === "playlist") {
+      try {
+        playerRef.current.previousVideo();
+      } catch {}
+    }
+  };
+
+  const openInYouTube = () => {
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   const hasSource = url && kind;
-  const panelWidth = expanded ? "36rem" : "18rem";
 
   if (!mounted) {
     return (
-      <aside className="hidden xl:flex fixed bottom-20 left-0 z-30 flex-col items-center justify-center w-20">
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card/70 backdrop-blur p-3">
-          <Skeleton className="h-9 w-9 rounded-md" />
-          <Skeleton className="h-7 w-7 rounded-md" />
-        </div>
-      </aside>
-    );
-  }
-
-  if (collapsed) {
-    return (
-      <aside className="hidden xl:flex fixed bottom-20 left-0 z-30 flex-col items-center justify-center w-20">
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card/70 backdrop-blur p-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setCollapsed(false)}
-            aria-label="Expandir playlist"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <ListMusic />
-          </Button>
-          {hasSource && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={togglePlay}
-              aria-label={playing ? "Pausar" : "Reproduzir"}
-              className={`${
-                playing ? "text-primary" : "text-muted-foreground"
-              } hover:text-foreground`}
-            >
-              {playing ? <Pause /> : <Play />}
-            </Button>
-          )}
-        </div>
-      </aside>
+      <div className="rounded-xl border border-border bg-card/70 backdrop-blur p-4 w-full">
+        <div className="h-9 w-full rounded-md bg-muted animate-pulse" />
+      </div>
     );
   }
 
   return (
-    <aside
-      className="hidden xl:flex fixed bottom-20 left-6 z-30 flex-col transition-[width] duration-200"
-      style={{ width: panelWidth }}
+    <div
+      className={`rounded-xl border border-border bg-card/70 backdrop-blur transition-[width] duration-200 ${
+        expanded && !collapsed ? "w-[36rem]" : "w-full"
+      }`}
     >
-      <div className="flex flex-col rounded-xl border border-border bg-card/70 backdrop-blur p-5 gap-4">
+      <div className="flex flex-col p-4 gap-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ListMusic className="w-4 h-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold tracking-tight">
               {kind === "video" ? "Vídeo" : "Playlist"}
             </h2>
-            {expanded && (
+            {expanded && !collapsed && (
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
                 2x
               </span>
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            {hasSource && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={toggleExpanded}
-                aria-label={expanded ? "Reduzir" : "Ampliar"}
-                title={expanded ? "Reduzir" : "Ampliar 2x"}
-                className="text-muted-foreground hover:text-foreground"
+            <Popover open={libraryOpen} onOpenChange={setLibraryOpen}>
+              <PopoverTrigger
+                className={`${iconButtonClass} relative`}
+                aria-label="Playlists salvas"
+                title="Playlists salvas"
               >
-                {expanded ? <Minimize2 /> : <Maximize2 />}
-              </Button>
+                <ListMusic className="h-4 w-4" />
+                {library.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center px-1">
+                    {library.length}
+                  </span>
+                )}
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="end"
+                className="w-72 p-2 flex flex-col gap-1"
+              >
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Playlists salvas
+                </div>
+                {library.length === 0 ? (
+                  <div className="px-2 py-6 text-xs text-muted-foreground text-center">
+                    Nenhuma playlist salva ainda.
+                  </div>
+                ) : (
+                  <ul className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
+                    {library.map((item) => {
+                      const active = url === item.url;
+                      const isEditing = editingId === item.id;
+                      return (
+                        <li
+                          key={item.id}
+                          className="group flex items-center gap-1"
+                        >
+                          {isEditing ? (
+                            <div className="flex-1 flex items-center gap-1 px-1 py-0.5">
+                              <input
+                                value={editingTitle}
+                                onChange={(e) =>
+                                  setEditingTitle(e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") commitEditing();
+                                  if (e.key === "Escape") cancelEditing();
+                                }}
+                                autoFocus
+                                className="flex-1 h-8 rounded-md border border-border bg-background/60 px-2 text-sm focus:outline-none focus:border-foreground/30"
+                              />
+                              <button
+                                onClick={commitEditing}
+                                aria-label="Salvar"
+                                className="p-1 text-muted-foreground hover:text-foreground"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => playSaved(item)}
+                              className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left transition-colors min-w-0 ${
+                                active
+                                  ? "bg-accent/40 text-foreground"
+                                  : "text-muted-foreground hover:bg-accent/20 hover:text-foreground"
+                              }`}
+                            >
+                              {active ? (
+                                <Check className="w-3.5 h-3.5 shrink-0 text-primary" />
+                              ) : (
+                                <Play className="w-3.5 h-3.5 shrink-0" />
+                              )}
+                              <span className="truncate">{item.title}</span>
+                            </button>
+                          )}
+
+                          {!isEditing && (
+                            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => startEditing(item)}
+                                aria-label="Renomear"
+                                className="p-1 text-muted-foreground hover:text-foreground"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => removeSaved(item.id)}
+                                aria-label="Remover"
+                                className="p-1 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            {hasSource && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={openInYouTube}
+                  aria-label="Abrir no YouTube"
+                  title="Abrir no YouTube"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLink />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleExpanded}
+                  aria-label={expanded ? "Reduzir" : "Ampliar"}
+                  title={expanded ? "Reduzir" : "Ampliar 2x"}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {expanded ? <Minimize2 /> : <Maximize2 />}
+                </Button>
+              </>
             )}
+
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setCollapsed(true)}
-              aria-label="Colapsar"
+              onClick={toggleCollapsed}
+              aria-label={collapsed ? "Expandir" : "Colapsar"}
+              title={collapsed ? "Expandir" : "Colapsar"}
               className="text-muted-foreground hover:text-foreground"
             >
-              <ListMusic />
+              {collapsed ? <ChevronUp /> : <ChevronDown />}
             </Button>
           </div>
         </div>
@@ -335,27 +676,36 @@ export default function Playlist() {
             <Button
               variant="outline"
               onClick={save}
-              className="h-10 rounded-md"
+              className="h-10 rounded-md w-full"
             >
+              <Plus className="w-4 h-4" />
               Carregar
             </Button>
           </div>
         ) : (
           <>
-            <div className="aspect-video w-full overflow-hidden rounded-md border border-border bg-background">
-              <ReactPlayer
-                ref={playerRef}
-                src={url}
-                playing={playing}
-                volume={volume}
-                muted={muted}
-                controls={false}
-                width="100%"
-                height="100%"
-                onReady={handleReady}
-                onError={handleError}
+            <div
+              className={`relative w-full overflow-hidden rounded-md border border-border bg-background ${
+                collapsed ? "aspect-video max-h-40" : "aspect-video"
+              }`}
+            >
+              <div
+                ref={containerRef}
+                className="absolute inset-0 w-full h-full"
               />
             </div>
+
+            {playerError ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive flex flex-col gap-2">
+                <span>Não foi possível carregar a mídia aqui.</span>
+                <button
+                  onClick={openInYouTube}
+                  className="self-start underline underline-offset-2 hover:no-underline"
+                >
+                  Abrir no YouTube
+                </button>
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-0.5">
@@ -363,6 +713,7 @@ export default function Playlist() {
                   variant="ghost"
                   size="icon-sm"
                   onClick={togglePlay}
+                  disabled={!playerReady || playerError}
                   aria-label={playing ? "Pausar" : "Reproduzir"}
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -375,6 +726,7 @@ export default function Playlist() {
                       variant="ghost"
                       size="icon-sm"
                       onClick={skipPrev}
+                      disabled={!playerReady || playerError}
                       aria-label="Anterior"
                       className="text-muted-foreground hover:text-foreground"
                     >
@@ -384,6 +736,7 @@ export default function Playlist() {
                       variant="ghost"
                       size="icon-sm"
                       onClick={skipNext}
+                      disabled={!playerReady || playerError}
                       aria-label="Próxima"
                       className="text-muted-foreground hover:text-foreground"
                     >
@@ -439,15 +792,15 @@ export default function Playlist() {
               </div>
 
               <button
-                onClick={clear}
+                onClick={stop}
                 className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
               >
-                Trocar
+                <XIcon className="h-4 w-4" />
               </button>
             </div>
           </>
         )}
       </div>
-    </aside>
+    </div>
   );
 }
