@@ -149,9 +149,6 @@ export default function Playlist() {
     }
     loadSource(parsed);
     player.setVideoTitle(item.title);
-    toast.success(
-      parsed.kind === "playlist" ? "Playlist carregada" : "Vídeo carregado",
-    );
   };
 
   const removeSaved = (id: string) => {
