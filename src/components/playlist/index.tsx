@@ -20,7 +20,7 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
-  XIcon,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,6 +98,10 @@ type YTPlayer = {
   unMute: () => void;
   destroy: () => void;
   getPlayerState: () => number;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  getVideoData?: () => { title?: string; video_id?: string };
 };
 
 type YTPlayerOptions = {
@@ -145,6 +149,13 @@ function defaultTitle(parsed: ParsedSource): string {
     : `Vídeo ${parsed.id.slice(0, 4)}`;
 }
 
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 export default function Playlist() {
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<SourceKind | null>(null);
@@ -161,6 +172,9 @@ export default function Playlist() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [videoTitle, setVideoTitle] = useState("");
   const playerRef = useRef<YTPlayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const apiLoadedRef = useRef(false);
@@ -245,6 +259,11 @@ export default function Playlist() {
         modestbranding: 1,
         rel: 0,
         playsinline: 1,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        iv_load_policy: 3,
+        showinfo: 0,
       };
 
       if (parsed.kind === "playlist") {
@@ -273,6 +292,10 @@ export default function Playlist() {
           onStateChange: (event) => {
             if (event.data === window.YT.PlayerState.PLAYING) {
               setPlaying(true);
+              try {
+                const data = playerRef.current?.getVideoData?.();
+                if (data?.title) setVideoTitle(data.title);
+              } catch {}
             } else if (
               event.data === window.YT.PlayerState.PAUSED ||
               event.data === window.YT.PlayerState.ENDED
@@ -324,6 +347,24 @@ export default function Playlist() {
 
   useEffect(() => {
     if (!playerRef.current || !playerReady) return;
+    const id = setInterval(() => {
+      if (!playerRef.current) return;
+      try {
+        const t = playerRef.current.getCurrentTime();
+        const d = playerRef.current.getDuration();
+        setCurrentTime(t);
+        setDuration(d);
+        const data = playerRef.current.getVideoData?.();
+        if (data?.title && data.title !== videoTitle) {
+          setVideoTitle(data.title);
+        }
+      } catch {}
+    }, 1000);
+    return () => clearInterval(id);
+  }, [playerReady, videoTitle]);
+
+  useEffect(() => {
+    if (!playerRef.current || !playerReady) return;
     try {
       playerRef.current.setVolume(volume * 100);
     } catch {}
@@ -349,6 +390,9 @@ export default function Playlist() {
     setUrl(source.url);
     setKind(source.kind);
     setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setVideoTitle("");
   };
 
   const save = () => {
@@ -407,6 +451,9 @@ export default function Playlist() {
     setUrl("");
     setKind(null);
     setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setVideoTitle("");
   };
 
   const playSaved = (item: SavedSource) => {
@@ -419,6 +466,7 @@ export default function Playlist() {
     }
     loadSource(parsed);
     setLibraryOpen(false);
+    setVideoTitle(item.title);
     toast.success(
       parsed.kind === "playlist" ? "Playlist carregada" : "Vídeo carregado",
     );
@@ -476,6 +524,7 @@ export default function Playlist() {
     if (kind === "playlist") {
       try {
         playerRef.current.nextVideo();
+        setCurrentTime(0);
       } catch {}
     }
   };
@@ -485,8 +534,17 @@ export default function Playlist() {
     if (kind === "playlist") {
       try {
         playerRef.current.previousVideo();
+        setCurrentTime(0);
       } catch {}
     }
+  };
+
+  const seek = (value: number) => {
+    if (!playerRef.current || !playerReady || !duration) return;
+    try {
+      playerRef.current.seekTo(value, true);
+      setCurrentTime(value);
+    } catch {}
   };
 
   const openInYouTube = () => {
@@ -494,6 +552,8 @@ export default function Playlist() {
   };
 
   const hasSource = url && kind;
+  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const displayTitle = videoTitle || (kind === "video" ? "Vídeo" : "Playlist");
 
   if (!mounted) {
     return (
@@ -505,302 +565,423 @@ export default function Playlist() {
 
   return (
     <div
-      className={`rounded-xl border border-border bg-card/70 backdrop-blur transition-[width] duration-200 ${
+      className={`relative rounded-xl border border-border bg-card/70 backdrop-blur transition-[width] duration-200 ${
         expanded && !collapsed ? "w-[36rem]" : "w-full"
       }`}
     >
-      <div className="flex flex-col p-4 gap-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ListMusic className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold tracking-tight">
-              {kind === "video" ? "Vídeo" : "Playlist"}
-            </h2>
-            {expanded && !collapsed && (
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
-                2x
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-0.5">
-            <Popover open={libraryOpen} onOpenChange={setLibraryOpen}>
-              <PopoverTrigger
-                className={`${iconButtonClass} relative`}
-                aria-label="Playlists salvas"
-                title="Playlists salvas"
-              >
-                <ListMusic className="h-4 w-4" />
-                {library.length > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center px-1">
-                    {library.length}
-                  </span>
-                )}
-              </PopoverTrigger>
-              <PopoverContent
-                side="top"
-                align="end"
-                className="w-72 p-2 flex flex-col gap-1"
-              >
-                <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                  Playlists salvas
-                </div>
-                {library.length === 0 ? (
-                  <div className="px-2 py-6 text-xs text-muted-foreground text-center">
-                    Nenhuma playlist salva ainda.
-                  </div>
-                ) : (
-                  <ul className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
-                    {library.map((item) => {
-                      const active = url === item.url;
-                      const isEditing = editingId === item.id;
-                      return (
-                        <li
-                          key={item.id}
-                          className="group flex items-center gap-1"
-                        >
-                          {isEditing ? (
-                            <div className="flex-1 flex items-center gap-1 px-1 py-0.5">
-                              <input
-                                value={editingTitle}
-                                onChange={(e) =>
-                                  setEditingTitle(e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") commitEditing();
-                                  if (e.key === "Escape") cancelEditing();
-                                }}
-                                autoFocus
-                                className="flex-1 h-8 rounded-md border border-border bg-background/60 px-2 text-sm focus:outline-none focus:border-foreground/30"
-                              />
-                              <button
-                                onClick={commitEditing}
-                                aria-label="Salvar"
-                                className="p-1 text-muted-foreground hover:text-foreground"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => playSaved(item)}
-                              className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left transition-colors min-w-0 ${
-                                active
-                                  ? "bg-accent/40 text-foreground"
-                                  : "text-muted-foreground hover:bg-accent/20 hover:text-foreground"
-                              }`}
-                            >
-                              {active ? (
-                                <Check className="w-3.5 h-3.5 shrink-0 text-primary" />
-                              ) : (
-                                <Play className="w-3.5 h-3.5 shrink-0" />
-                              )}
-                              <span className="truncate">{item.title}</span>
-                            </button>
-                          )}
-
-                          {!isEditing && (
-                            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={() => startEditing(item)}
-                                aria-label="Renomear"
-                                className="p-1 text-muted-foreground hover:text-foreground"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => removeSaved(item.id)}
-                                aria-label="Remover"
-                                className="p-1 text-muted-foreground hover:text-destructive"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </PopoverContent>
-            </Popover>
-
-            {hasSource && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={openInYouTube}
-                  aria-label="Abrir no YouTube"
-                  title="Abrir no YouTube"
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <ExternalLink />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={toggleExpanded}
-                  aria-label={expanded ? "Reduzir" : "Ampliar"}
-                  title={expanded ? "Reduzir" : "Ampliar 2x"}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {expanded ? <Minimize2 /> : <Maximize2 />}
-                </Button>
-              </>
-            )}
-
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={toggleCollapsed}
-              aria-label={collapsed ? "Expandir" : "Colapsar"}
-              title={collapsed ? "Expandir" : "Colapsar"}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {collapsed ? <ChevronUp /> : <ChevronDown />}
-            </Button>
-          </div>
+      <div
+        className={
+          collapsed ? "relative w-full h-24" : "relative w-full aspect-video"
+        }
+      >
+        <div
+          className={
+            collapsed
+              ? "absolute left-3 top-1/2 -translate-y-1/2 w-16 h-16 rounded-lg overflow-hidden border border-border bg-background shadow-sm"
+              : "absolute inset-0 w-full h-full overflow-hidden rounded-t-xl bg-background"
+          }
+        >
+          <div
+            ref={containerRef}
+            className="absolute inset-0 w-full h-full pointer-events-none"
+          />
+          {collapsed && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" />
+          )}
         </div>
 
-        {!hasSource ? (
-          <div className="flex flex-col gap-2">
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") save();
-              }}
-              placeholder="Cole o link do YouTube…"
-              className="h-10 rounded-md border border-border bg-background/60 px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30"
-            />
-            <Button
-              variant="outline"
-              onClick={save}
-              className="h-10 rounded-md w-full"
-            >
-              <Plus className="w-4 h-4" />
-              Carregar
-            </Button>
-          </div>
-        ) : (
+        {collapsed && (
           <>
-            <div
-              className={`relative w-full overflow-hidden rounded-md border border-border bg-background ${
-                collapsed ? "aspect-video max-h-40" : "aspect-video"
-              }`}
-            >
-              <div
-                ref={containerRef}
-                className="absolute inset-0 w-full h-full"
-              />
+            <div className="absolute left-24 right-3 top-4 flex items-center gap-2">
+              <span className="text-xs font-medium truncate block leading-tight flex-1 min-w-0">
+                {displayTitle}
+              </span>
+              <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">
+                {formatTime(currentTime)}/{formatTime(duration)}
+              </span>
             </div>
 
-            {playerError ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive flex flex-col gap-2">
-                <span>Não foi possível carregar a mídia aqui.</span>
+            <div className="absolute left-24 right-3 bottom-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={openInYouTube}
-                  className="self-start underline underline-offset-2 hover:no-underline"
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const pct = (e.clientX - rect.left) / rect.width;
+                    seek(pct * duration);
+                  }}
+                  className="flex-1 h-1 rounded-full bg-muted overflow-hidden"
+                  aria-label="Progresso"
                 >
-                  Abrir no YouTube
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${progressPct}%` }}
+                  />
                 </button>
               </div>
-            ) : null}
 
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center justify-between gap-0.5">
+                <div>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={skipPrev}
+                    disabled={
+                      !playerReady || playerError || kind !== "playlist"
+                    }
+                    aria-label="Anterior"
+                    className="text-muted-foreground hover:text-foreground h-7 w-7"
+                  >
+                    <SkipBack className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={togglePlay}
+                    disabled={!playerReady || playerError}
+                    aria-label={playing ? "Pausar" : "Reproduzir"}
+                    className="text-foreground hover:bg-accent h-8 w-8"
+                  >
+                    {playing ? (
+                      <Pause className="h-4 w-4" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={skipNext}
+                    disabled={
+                      !playerReady || playerError || kind !== "playlist"
+                    }
+                    aria-label="Próxima"
+                    className="text-muted-foreground hover:text-foreground h-7 w-7"
+                  >
+                    <SkipForward className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  onClick={togglePlay}
-                  disabled={!playerReady || playerError}
-                  aria-label={playing ? "Pausar" : "Reproduzir"}
-                  className="text-muted-foreground hover:text-foreground"
+                  onClick={toggleCollapsed}
+                  aria-label="Expandir"
+                  className="text-muted-foreground hover:text-foreground h-7 w-7 shrink-0"
                 >
-                  {playing ? <Pause /> : <Play />}
+                  <ChevronUp className="h-3.5 w-3.5" />
                 </Button>
-
-                {kind === "playlist" && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={skipPrev}
-                      disabled={!playerReady || playerError}
-                      aria-label="Anterior"
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <SkipBack />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={skipNext}
-                      disabled={!playerReady || playerError}
-                      aria-label="Próxima"
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <SkipForward />
-                    </Button>
-                  </>
-                )}
-
-                <Popover>
-                  <PopoverTrigger
-                    className={iconButtonClass}
-                    aria-label="Volume"
-                  >
-                    {muted || volume === 0 ? (
-                      <VolumeX className="h-4 w-4" />
-                    ) : volume < 0.5 ? (
-                      <Volume1 className="h-4 w-4" />
-                    ) : (
-                      <Volume2 className="h-4 w-4" />
-                    )}
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="top"
-                    align="start"
-                    className="w-48 p-3 flex flex-col gap-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
-                        Volume
-                      </span>
-                      <button
-                        onClick={toggleMute}
-                        className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
-                      >
-                        {muted ? "Ativar" : "Silenciar"}
-                      </button>
-                    </div>
-                    <Slider
-                      value={[muted ? 0 : volume * 100]}
-                      onValueChange={(v) => {
-                        const next = toNumber(v) / 100;
-                        setVolume(next);
-                        if (next > 0) setMuted(false);
-                      }}
-                      max={100}
-                      step={1}
-                    />
-                    <span className="text-[10px] tabular-nums text-muted-foreground text-right">
-                      {Math.round((muted ? 0 : volume) * 100)}%
-                    </span>
-                  </PopoverContent>
-                </Popover>
               </div>
-
-              <button
-                onClick={stop}
-                className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
-              >
-                <XIcon className="h-4 w-4" />
-              </button>
             </div>
           </>
         )}
       </div>
+
+      {!collapsed && (
+        <div className="flex flex-col p-4 gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ListMusic className="w-4 h-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold tracking-tight">
+                {kind === "video" ? "Vídeo" : "Playlist"}
+              </h2>
+              {expanded && (
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                  2x
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5">
+              <Popover open={libraryOpen} onOpenChange={setLibraryOpen}>
+                <PopoverTrigger
+                  className={`${iconButtonClass} relative`}
+                  aria-label="Playlists salvas"
+                  title="Playlists salvas"
+                >
+                  <ListMusic className="h-4 w-4" />
+                  {library.length > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center px-1">
+                      {library.length}
+                    </span>
+                  )}
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  className="w-72 p-2 flex flex-col gap-1"
+                >
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    Playlists salvas
+                  </div>
+                  {library.length === 0 ? (
+                    <div className="px-2 py-6 text-xs text-muted-foreground text-center">
+                      Nenhuma playlist salva ainda.
+                    </div>
+                  ) : (
+                    <ul className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
+                      {library.map((item) => {
+                        const active = url === item.url;
+                        const isEditing = editingId === item.id;
+                        return (
+                          <li
+                            key={item.id}
+                            className="group flex items-center gap-1"
+                          >
+                            {isEditing ? (
+                              <div className="flex-1 flex items-center gap-1 px-1 py-0.5">
+                                <input
+                                  value={editingTitle}
+                                  onChange={(e) =>
+                                    setEditingTitle(e.target.value)
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") commitEditing();
+                                    if (e.key === "Escape") cancelEditing();
+                                  }}
+                                  autoFocus
+                                  className="flex-1 h-8 rounded-md border border-border bg-background/60 px-2 text-sm focus:outline-none focus:border-foreground/30"
+                                />
+                                <button
+                                  onClick={commitEditing}
+                                  aria-label="Salvar"
+                                  className="p-1 text-muted-foreground hover:text-foreground"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => playSaved(item)}
+                                className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left transition-colors min-w-0 ${
+                                  active
+                                    ? "bg-accent/40 text-foreground"
+                                    : "text-muted-foreground hover:bg-accent/20 hover:text-foreground"
+                                }`}
+                              >
+                                {active ? (
+                                  <Check className="w-3.5 h-3.5 shrink-0 text-primary" />
+                                ) : (
+                                  <Play className="w-3.5 h-3.5 shrink-0" />
+                                )}
+                                <span className="truncate">{item.title}</span>
+                              </button>
+                            )}
+
+                            {!isEditing && (
+                              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => startEditing(item)}
+                                  aria-label="Renomear"
+                                  className="p-1 text-muted-foreground hover:text-foreground"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => removeSaved(item.id)}
+                                  aria-label="Remover"
+                                  className="p-1 text-muted-foreground hover:text-destructive"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </PopoverContent>
+              </Popover>
+
+              {hasSource && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={openInYouTube}
+                    aria-label="Abrir no YouTube"
+                    title="Abrir no YouTube"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <ExternalLink />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={toggleExpanded}
+                    aria-label={expanded ? "Reduzir" : "Ampliar"}
+                    title={expanded ? "Reduzir" : "Ampliar 2x"}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {expanded ? <Minimize2 /> : <Maximize2 />}
+                  </Button>
+                </>
+              )}
+
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={toggleCollapsed}
+                aria-label={collapsed ? "Expandir" : "Colapsar"}
+                title={collapsed ? "Modo compacto" : "Modo expandido"}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown />
+              </Button>
+            </div>
+          </div>
+
+          {!hasSource ? (
+            <div className="flex flex-col gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") save();
+                }}
+                placeholder="Cole o link do YouTube…"
+                className="h-10 rounded-md border border-border bg-background/60 px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30"
+              />
+              <Button
+                variant="outline"
+                onClick={save}
+                className="h-10 rounded-md w-full"
+              >
+                <Plus className="w-4 h-4" />
+                Carregar
+              </Button>
+            </div>
+          ) : (
+            <>
+              {playerError ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive flex flex-col gap-2">
+                  <span>Não foi possível carregar a mídia aqui.</span>
+                  <button
+                    onClick={openInYouTube}
+                    className="self-start underline underline-offset-2 hover:no-underline"
+                  >
+                    Abrir no YouTube
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] tabular-nums text-muted-foreground w-8 text-right">
+                  {formatTime(currentTime)}
+                </span>
+                <button
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const pct = (e.clientX - rect.left) / rect.width;
+                    seek(pct * duration);
+                  }}
+                  className="flex-1 h-1 rounded-full bg-muted overflow-hidden"
+                  aria-label="Progresso"
+                >
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </button>
+                <span className="text-[10px] tabular-nums text-muted-foreground w-8">
+                  {formatTime(duration)}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={togglePlay}
+                    disabled={!playerReady || playerError}
+                    aria-label={playing ? "Pausar" : "Reproduzir"}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {playing ? <Pause /> : <Play />}
+                  </Button>
+
+                  {kind === "playlist" && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={skipPrev}
+                        disabled={!playerReady || playerError}
+                        aria-label="Anterior"
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <SkipBack />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={skipNext}
+                        disabled={!playerReady || playerError}
+                        aria-label="Próxima"
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <SkipForward />
+                      </Button>
+                    </>
+                  )}
+
+                  <Popover>
+                    <PopoverTrigger
+                      className={iconButtonClass}
+                      aria-label="Volume"
+                    >
+                      {muted || volume === 0 ? (
+                        <VolumeX className="h-4 w-4" />
+                      ) : volume < 0.5 ? (
+                        <Volume1 className="h-4 w-4" />
+                      ) : (
+                        <Volume2 className="h-4 w-4" />
+                      )}
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      className="w-48 p-3 flex flex-col gap-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          Volume
+                        </span>
+                        <button
+                          onClick={toggleMute}
+                          className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                        >
+                          {muted ? "Ativar" : "Silenciar"}
+                        </button>
+                      </div>
+                      <Slider
+                        value={[muted ? 0 : volume * 100]}
+                        onValueChange={(v) => {
+                          const next = toNumber(v) / 100;
+                          setVolume(next);
+                          if (next > 0) setMuted(false);
+                        }}
+                        max={100}
+                        step={1}
+                      />
+                      <span className="text-[10px] tabular-nums text-muted-foreground text-right">
+                        {Math.round((muted ? 0 : volume) * 100)}%
+                      </span>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <button
+                  onClick={stop}
+                  aria-label="Remover playlist"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
