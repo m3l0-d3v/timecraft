@@ -92,14 +92,10 @@ export default function Playlist() {
     localStorage.setItem(LIBRARY_KEY, JSON.stringify(library));
   }, [library, mounted]);
 
-  const loadSource = useCallback(
-    (source: ParsedSource) => {
-      player.destroy();
-      setUrl(source.url);
-      setKind(source.kind);
-    },
-    [player],
-  );
+  const loadSource = useCallback((source: ParsedSource) => {
+    setUrl(source.url);
+    setKind(source.kind);
+  }, []);
 
   const save = () => {
     const trimmed = draft.trim();
@@ -218,6 +214,7 @@ export default function Playlist() {
           }
         >
           <div
+            key={player.containerKey}
             ref={player.containerRef}
             className="absolute inset-0 w-full h-full pointer-events-none"
           />

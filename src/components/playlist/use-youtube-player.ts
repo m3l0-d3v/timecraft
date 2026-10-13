@@ -66,6 +66,7 @@ export function useYouTubePlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [videoTitle, setVideoTitle] = useState("");
+  const [containerKey, setContainerKey] = useState(0);
   const playerRef = useRef<YTPlayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const apiLoadedRef = useRef(false);
@@ -82,10 +83,13 @@ export function useYouTubePlayer({
 
   useEffect(() => {
     if (!url || !kind) return;
-    if (playerRef.current) return;
+
+    let cancelled = false;
 
     const createPlayer = () => {
-      if (!containerRef.current || playerRef.current) return;
+      if (cancelled) return;
+      if (!containerRef.current) return;
+      if (playerRef.current) return;
 
       const parsed = parse(url);
       if (!parsed) return;
@@ -110,6 +114,7 @@ export function useYouTubePlayer({
         playerVars,
         events: {
           onReady: (event) => {
+            if (cancelled) return;
             setPlayerReady(true);
             setPlayerError(false);
             event.target.setVolume(volumeRef.current * 100);
@@ -117,6 +122,7 @@ export function useYouTubePlayer({
             else event.target.unMute();
           },
           onError: () => {
+            if (cancelled) return;
             setPlayerError(true);
             setPlaying(false);
             toast.error("Não foi possível carregar a mídia", {
@@ -125,6 +131,7 @@ export function useYouTubePlayer({
             });
           },
           onStateChange: (event) => {
+            if (cancelled) return;
             if (event.data === window.YT.PlayerState.PLAYING) {
               setPlaying(true);
               try {
@@ -170,13 +177,17 @@ export function useYouTubePlayer({
     loadAPI();
 
     return () => {
+      cancelled = true;
+
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
         } catch {}
         playerRef.current = null;
       }
+
       setPlayerReady(false);
+      setContainerKey((k) => k + 1);
     };
   }, [url, kind, parse]);
 
@@ -230,6 +241,7 @@ export function useYouTubePlayer({
       playerRef.current = null;
     }
     reset();
+    setContainerKey((k) => k + 1);
   };
 
   const togglePlay = () => {
@@ -275,6 +287,7 @@ export function useYouTubePlayer({
 
   return {
     containerRef,
+    containerKey,
     playerReady,
     playerError,
     playing,
