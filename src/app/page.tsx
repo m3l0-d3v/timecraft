@@ -33,15 +33,6 @@ const Page = () => {
 
       <main className="flex-1 min-h-0 w-full flex flex-col items-center justify-center px-6 lg:px-80">
         <div className="w-full max-w-4xl flex flex-col items-center">
-          <div className="w-full mb-12">
-            <p className="text-sm uppercase tracking-[0.25em] text-muted-foreground mb-2">
-              Sessão atual
-            </p>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Esculpa seu tempo.
-            </h1>
-          </div>
-
           {tool === "timer" && (
             <div className="mb-10">
               <ModeSwitcher value={mode} onChange={setMode} />
