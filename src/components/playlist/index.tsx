@@ -103,6 +103,7 @@ export default function Playlist() {
 
   const save = () => {
     const trimmed = draft.trim();
+
     if (!trimmed) {
       toast.error("Cole um link do YouTube", {
         description: "Playlist ou vídeo. Ex.: youtube.com/watch?v=…",
@@ -111,6 +112,7 @@ export default function Playlist() {
     }
 
     const parsed = parseYouTubeUrl(trimmed);
+
     if (!parsed) {
       toast.error("Link inválido", {
         description: "Use uma URL do YouTube (playlist ou vídeo).",
@@ -200,7 +202,7 @@ export default function Playlist() {
   return (
     <div
       className={`relative rounded-xl border border-border bg-card/70 backdrop-blur transition-[width] duration-200 ${
-        expanded && !collapsed ? "w-[36rem]" : "w-full"
+        expanded && !collapsed ? "w-xl" : "w-full"
       }`}
     >
       <div

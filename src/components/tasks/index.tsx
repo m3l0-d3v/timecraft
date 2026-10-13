@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronsLeft, ChevronsRight, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronsLeft, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import Playlist from "../playlist";
+import { CollapsedView } from "./collapsed-view";
+import { TaskList } from "./task-list";
+import {
+  COLLAPSED_KEY,
+  STATUSES,
+  STORAGE_KEY,
+  type Task,
+  type TaskStatus,
+} from "./constants";
 
-export type Task = {
-  id: string;
-  title: string;
-  done: boolean;
-};
-
-const STORAGE_KEY = "timecraft:tasks";
-const COLLAPSED_KEY = "timecraft:tasks-collapsed";
+export type { Task } from "./constants";
 
 export default function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -28,7 +30,23 @@ export default function Tasks() {
 
     if (storedTasks) {
       try {
-        setTasks(JSON.parse(storedTasks));
+        const parsed = JSON.parse(storedTasks) as Array<
+          Partial<Task> & { done?: boolean }
+        >;
+        const migrated: Task[] = parsed.map((t) => {
+          const status: TaskStatus =
+            typeof t.status === "string"
+              ? (t.status as TaskStatus)
+              : t.done
+                ? "done"
+                : "todo";
+          return {
+            id: t.id ?? crypto.randomUUID(),
+            title: t.title ?? "",
+            status,
+          };
+        });
+        setTasks(migrated);
       } catch {}
     }
     if (storedCollapsed === "false") setCollapsed(false);
@@ -53,13 +71,13 @@ export default function Tasks() {
   const addTask = () => {
     const title = draft.trim();
     if (!title) return;
-    setTasks((t) => [...t, { id: crypto.randomUUID(), title, done: false }]);
+    setTasks((t) => [...t, { id: crypto.randomUUID(), title, status: "todo" }]);
     setDraft("");
   };
 
-  const toggleTask = (id: string) => {
+  const changeStatus = (id: string, status: TaskStatus) => {
     setTasks((t) =>
-      t.map((task) => (task.id === id ? { ...task, done: !task.done } : task)),
+      t.map((task) => (task.id === id ? { ...task, status } : task)),
     );
   };
 
@@ -67,8 +85,20 @@ export default function Tasks() {
     setTasks((t) => t.filter((task) => task.id !== id));
   };
 
-  const doneCount = tasks.filter((t) => t.done).length;
-  const visibleTasks = tasks.slice(0, 8);
+  const counts = useMemo(() => {
+    const base = STATUSES.reduce(
+      (acc, status) => {
+        acc[status.value] = 0;
+        return acc;
+      },
+      {} as Record<TaskStatus, number>,
+    );
+    for (const task of tasks) base[task.status] += 1;
+    return base;
+  }, [tasks]);
+
+  const doneCount = counts.done;
+  const totalCount = tasks.length;
 
   if (!mounted) {
     return (
@@ -87,45 +117,11 @@ export default function Tasks() {
   if (collapsed) {
     return (
       <aside className="hidden xl:flex fixed top-0 left-0 h-full z-30 flex-col items-center justify-center w-20">
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card/70 backdrop-blur p-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setCollapsed(false)}
-            aria-label="Expandir tarefas"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <ChevronsRight />
-          </Button>
-
-          <span className="text-[10px] font-semibold tabular-nums text-muted-foreground mt-1">
-            {doneCount}/{tasks.length}
-          </span>
-
-          <div className="flex flex-col items-center gap-1.5 mt-1">
-            {tasks.length === 0 && (
-              <span className="w-7 h-7 rounded-md border border-dashed border-border" />
-            )}
-            {visibleTasks.map((task) => (
-              <span
-                key={task.id}
-                title={task.title}
-                className={`w-7 h-7 rounded-md flex items-center justify-center border transition-colors ${
-                  task.done
-                    ? "bg-primary border-primary text-primary-foreground"
-                    : "border-border bg-transparent text-muted-foreground"
-                }`}
-              >
-                {task.done ? <Check className="w-3.5 h-3.5" /> : null}
-              </span>
-            ))}
-            {tasks.length > 8 && (
-              <span className="text-[10px] text-muted-foreground tabular-nums">
-                +{tasks.length - 8}
-              </span>
-            )}
-          </div>
-        </div>
+        <CollapsedView
+          tasks={tasks}
+          doneCount={doneCount}
+          onExpand={() => setCollapsed(false)}
+        />
       </aside>
     );
   }
@@ -133,12 +129,12 @@ export default function Tasks() {
   return (
     <aside className="hidden xl:flex fixed top-0 left-0 h-full z-30 flex-col justify-center px-6">
       <div className="flex flex-col gap-4 w-72">
-        <div className="flex flex-col rounded-xl border border-border bg-card/70 backdrop-blur p-6">
-          <div className="flex items-center justify-between mb-5">
+        <div className="flex flex-col rounded-xl border border-border bg-card/70 backdrop-blur p-5">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold tracking-tight">Tarefas</h2>
               <span className="text-xs text-muted-foreground tabular-nums">
-                {doneCount}/{tasks.length}
+                {doneCount}/{totalCount}
               </span>
             </div>
             <Button
@@ -152,7 +148,7 @@ export default function Tasks() {
             </Button>
           </div>
 
-          <div className="flex items-center gap-2 mb-5">
+          <div className="flex items-center gap-2 mb-4">
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -160,67 +156,28 @@ export default function Tasks() {
                 if (e.key === "Enter") addTask();
               }}
               placeholder="Nova tarefa…"
-              className="flex-1 h-10 rounded-md border border-border bg-background/60 px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30"
+              className="flex-1 h-9 rounded-md border border-border bg-background/60 px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30"
             />
             <Button
               variant="outline"
               size="icon"
               onClick={addTask}
               aria-label="Adicionar tarefa"
-              className="h-10 w-10 rounded-md"
+              className="h-9 w-9 rounded-md"
             >
               <Plus className="w-4 h-4" />
             </Button>
           </div>
 
-          <ul className="flex flex-col gap-2 max-h-[30vh] overflow-y-auto pr-1">
-            {tasks.length === 0 && (
-              <li className="text-xs text-muted-foreground text-center py-6 border border-dashed border-border rounded-md">
-                Nenhuma tarefa ainda.
-              </li>
-            )}
-            {tasks.map((task) => (
-              <li
-                key={task.id}
-                className={`group flex items-center justify-between gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${
-                  task.done
-                    ? "border-primary/20 bg-primary/5 text-muted-foreground"
-                    : "border-border/60 bg-transparent text-foreground"
-                }`}
-              >
-                <button
-                  onClick={() => toggleTask(task.id)}
-                  className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
-                >
-                  <span
-                    className={`w-5 h-5 shrink-0 rounded-md flex items-center justify-center border ${
-                      task.done
-                        ? "bg-primary border-primary text-primary-foreground"
-                        : "border-border bg-transparent"
-                    }`}
-                  >
-                    {task.done && <Check className="w-3 h-3" />}
-                  </span>
-                  <span
-                    className={`truncate ${task.done ? "line-through" : ""}`}
-                  >
-                    {task.title}
-                  </span>
-                </button>
-                <button
-                  onClick={() => removeTask(task.id)}
-                  aria-label="Remover tarefa"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <TaskList
+            tasks={tasks}
+            counts={counts}
+            onStatusChange={changeStatus}
+            onRemove={removeTask}
+          />
 
-          <div className="mt-6 pt-5 border-t border-border/60 text-xs text-muted-foreground leading-relaxed">
-            Organize o que vai focar em cada sessão. Pressione Enter para
-            adicionar.
+          <div className="mt-5 pt-4 border-t border-border/60 text-xs text-muted-foreground leading-relaxed">
+            Clique no ícone ao lado da tarefa para alterar o status.
           </div>
         </div>
 
