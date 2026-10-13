@@ -7,6 +7,7 @@ import Timer from "../components/timer";
 import Clock from "../components/clock";
 import Sessions from "../components/sessions";
 import Tasks from "../components/tasks";
+import Playlist from "../components/playlist";
 import ModeSwitcher from "../components/mode-switcher";
 import type { Mode } from "../components/mode-switcher";
 
@@ -30,6 +31,7 @@ const Page = () => {
 
       <Tasks />
       <Sessions cycles={cycles} totalCycles={totalCycles} />
+      <Playlist />
 
       <main className="flex-1 min-h-0 w-full flex flex-col items-center justify-center px-6 lg:px-80">
         <div className="w-full max-w-4xl flex flex-col items-center">
